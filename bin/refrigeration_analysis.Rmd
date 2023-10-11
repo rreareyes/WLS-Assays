@@ -59,446 +59,199 @@ raw_assays <- read_all_sheets(file.path(dir_data, "100323_ILD001_N4PE_REW_Result
 ```{r}
 data_ptau217 <- raw_ptau217[["100323_ILD002_ptau217_REW_Resul"]] |> 
   clean_names() |> 
-  mutate(replicate_conc = as.numeric(replicate_conc),
+  mutate(replicate_conc      = as.numeric(replicate_conc),
          hours_before_freeze = as.factor(hours_before_freeze),
-         identifier = as.factor(identifier)) |> 
-  select(plex, identifier, hours_before_freeze, replicate_conc) |> 
+         identifier          = as.factor(identifier),
+         target              = "ptau217") |> 
+  select(target, identifier, hours_before_freeze, replicate_conc) |> 
   arrange(identifier, hours_before_freeze)
 
 data_nfl <- raw_assays[["NfL"]] |> 
   clean_names() |> 
-  mutate(replicate_conc = as.numeric(replicate_conc),
+  mutate(replicate_conc      = as.numeric(replicate_conc),
          hours_before_freeze = as.factor(hours_before_freeze),
-         identifier = as.factor(identifier)) |> 
-  select(plex, identifier, hours_before_freeze, replicate_conc) |> 
+         identifier          = as.factor(identifier),
+         target              = "nfl") |> 
+  select(target, identifier, hours_before_freeze, replicate_conc) |> 
   arrange(identifier, hours_before_freeze)
 
 data_gfap <- raw_assays[["GFAP"]] |> 
   clean_names() |> 
-  mutate(replicate_conc = as.numeric(replicate_conc),
+  mutate(replicate_conc      = as.numeric(replicate_conc),
          hours_before_freeze = as.factor(hours_before_freeze),
-         identifier = as.factor(identifier)) |> 
-  select(plex, identifier, hours_before_freeze, replicate_conc) |> 
+         identifier          = as.factor(identifier),
+         target              = "gfap") |> 
+  select(target, identifier, hours_before_freeze, replicate_conc) |> 
   arrange(identifier, hours_before_freeze)
 
 data_ab40 <- raw_assays[["Abeta40"]] |> 
   clean_names() |> 
-  mutate(replicate_conc = as.numeric(replicate_conc),
+  mutate(replicate_conc      = as.numeric(replicate_conc),
          hours_before_freeze = as.factor(hours_before_freeze),
-         identifier = as.factor(identifier)) |> 
-  select(plex, identifier, hours_before_freeze, replicate_conc) |> 
+         identifier          = as.factor(identifier),
+         target              = "ab40") |> 
+  select(target, identifier, hours_before_freeze, replicate_conc) |> 
   arrange(identifier, hours_before_freeze)
 
 data_ab42 <- raw_assays[["Abeta42"]] |> 
   clean_names() |> 
-  mutate(replicate_conc = as.numeric(replicate_conc),
+  mutate(replicate_conc      = as.numeric(replicate_conc),
          hours_before_freeze = as.factor(hours_before_freeze),
-         identifier = as.factor(identifier)) |> 
-  select(plex, identifier, hours_before_freeze, replicate_conc) |> 
+         identifier          = as.factor(identifier),
+         target              = "ab42") |> 
+  select(target, identifier, hours_before_freeze, replicate_conc) |> 
   arrange(identifier, hours_before_freeze)
 
 data_ratio_ab42 <- full_join(data_ab42, data_ab40) |> 
   pivot_wider(id_cols     = c(identifier, hours_before_freeze), 
-              names_from  = plex, 
+              names_from  = target, 
               values_from = replicate_conc) |> 
-  clean_names() |> 
-  mutate(ab42_ratio = abeta_42/abeta_40)
+  mutate(replicate_conc = ab42/ab40,
+         target         = "ratio_4240") |>
+  select(-c(ab42, ab40))
 
 ```
 
-## Analysis
-
-### Protein $\tau_{217}$
-#### Repeated measures ANOVA with follow-up paired comparisons
-
+### Combine datasets for plotting
 ```{r}
-anova_ptau217 <- oneway_anova(data         = data_ptau217, 
-                              x            = hours_before_freeze, 
-                              y            = replicate_conc, 
-                              paired       = T,
-                              subject.id   = identifier,
-                              effsize.type = "eta" 
-                              )
-
-paired_comp_ptau217 <- generate_pairwise_labels(dataset = data_ptau217,
-                                                x       = hours_before_freeze,
-                                                y       = replicate_conc)
+data_joint_targets <- bind_rows(data_ptau217, data_gfap, data_nfl, 
+                                data_ab40, data_ab42, data_ratio_ab42) |> 
+  mutate(target = factor(target, 
+                         levels = c("ptau217", "gfap", "nfl", "ab40", "ab42", "ratio_4240"),
+                         labels = c('pTau[217]', 'NfL', 'GFAP', 'A*beta[40]', 'A*beta[42]', 'A*beta[42]/A*beta[40]'))
+         )
 
 ```
 
-#### ICC
+## Plot results
+### Define custom scales and paired comparison bar positions
 ```{r}
-icc_ptau217 <- icc(data_ptau217 |> 
-  pivot_wider(id_cols      = c(identifier), 
-              names_from   = hours_before_freeze, 
-              values_from  = replicate_conc, 
-              names_prefix = "time_") |> 
-  select(-c(identifier)), 
-  model = "twoway", 
-  type = "agreement")
+scales_y <- list(`ptau217`    = scale_y_continuous(name = "", limits = c(0, 1.7), breaks = seq(0, 1.7, 0.4)),
+                 `nfl`        = scale_y_continuous(name = "", limits = c(0, 635), breaks = seq(0, 635, 150)),
+                 `gfap`       = scale_y_continuous(name = "", limits = c(0, 150), breaks = seq(0, 150, 50)),
+                 `ab40`       = scale_y_continuous(name = "", limits = c(0, 130), breaks = seq(0, 130, 26)),
+                 `ab42`       = scale_y_continuous(name = "", limits = c(2, 10), breaks = seq(0, 10, 2.5)),
+                 `ratio_4240` = scale_y_continuous(name = "Amyloid Ratio", limits = c(0.04, 0.12), breaks = seq(0, 0.2, 0.02))
+                 )
+
+scales_x <- list(`ptau217`    = scale_x_discrete(name = "", labels = c("0 hrs", "48 hrs", "72 hrs")),
+                 `nfl`        = scale_x_discrete(name = "", labels = c("0 hrs", "48 hrs", "72 hrs")),
+                 `gfap`       = scale_x_discrete(name = "", labels = c("0 hrs", "48 hrs", "72 hrs")),
+                 `ab40`       = scale_x_discrete(name = "", labels = c("0 hrs", "48 hrs", "72 hrs")),
+                 `ab42`       = scale_x_discrete(name = "", labels = c("0 hrs", "48 hrs", "72 hrs")),
+                 `ratio_4240` = scale_x_discrete(name = "", labels = c("0 hrs", "48 hrs", "72 hrs"))
+                 )
+
+comparison_positions <- list(`ptau217`    = c(1, 1.2, 1.1),
+                             `nfl`        = c(1, 1.2, 1.1),
+                             `gfap`       = c(1, 1.2, 1.1),
+                             `ab40`       = c(102, 118, 110),
+                             `ab42`       = c(8, 9, 8.5),
+                             `ratio_4240` = c(0.09, 0.10, 0.095))
 
 ```
 
+### Initialize plot components
+```{r}
+target_names <- c('pTau[217]', 'NfL', 'GFAP', 'A*beta[40]', 'A*beta[42]', 'A*beta[42]/A*beta[40]')
+n_targets <- length(target_names)
 
-```{r, fig.width=8}
-plot_ptau217 <- generate_spaguetti_plot(data_ptau217, 
-                                        response  = replicate_conc, 
-                                        font_size = 10) +
+common_y_title <- textGrob("Concentration (pg/ml)", 
+                           gp  = gpar(fontsize = 12), 
+                           rot = 90)
+
+common_x_title <- textGrob("Hours before freeze", 
+                           gp = gpar(fontsize = 12))
+
+anova_results     <- list()
+comparison_labels <- list()
+target_panels     <- list()
+
+```
+
+### Loop around all the metrics and create individual panels
+```{r}
+
+for (i_target in 1:n_targets) {
   
-  ggtitle(label    = bquote(tau[217]),
-          subtitle = anova_ptau217$expression[[1]]) 
+  anova_results[[i_target]] <- oneway_anova(data         = filter(data_joint_targets, 
+                                                                  target == target_names[i_target]),
+                                            x            = hours_before_freeze, 
+                                            y            = replicate_conc, 
+                                            paired       = T,
+                                            subject.id   = identifier,
+                                            effsize.type = "eta")
   
-  if(anova_ptau217$p.value < 0.05){
+  comparison_labels[[i_target]] <- generate_pairwise_labels(dataset = filter(data_joint_targets, 
+                                                                              target == target_names[i_target]),
+                                                             x      = hours_before_freeze,
+                                                             y      = replicate_conc)
+  
+  target_panels[[i_target]] <- generate_spaguetti_plot(filter(data_joint_targets, 
+                                                              target == target_names[i_target]),
+                                                       response  = replicate_conc, 
+                                                       font_size = 10) +
+  
+  scales_y[[i_target]] +
     
-    plot_ptau217 <- plot_ptau217 +
+  scales_x[[i_target]] +
+  
+  facet_rep_wrap(target ~ .,
+                 labeller = label_parsed) +
+  
+  theme(strip.background = element_rect(fill = "#680001"),
+        strip.text       = element_text(color = "white", 
+                                        size  = 10, 
+                                        face  = "bold"))
+  
+  ##### Highlighting ratio plot
+  if (i_target == 6) {
+    
+    target_panels[[i_target]] <- target_panels[[i_target]] +
       
-        geom_signif(comparisons      = paired_comp_ptau217$groups,
-              map_signif_level = TRUE,
-              y_position       = c(1, 1.2, 1.1),
-              annotations      = paired_comp_ptau217$label,
-              parse            = TRUE,
-              tip_length       = 0.01 
+      theme(plot.background = element_rect(colour    = "#680001", 
+                                           fill      = "white", 
+                                           linetype  = 3,
+                                           linewidth = 1))
+    
+  }
+  
+  ##### Only plot comparisons if main ANOVA was significant
+  if(anova_results[[i_target]]$p.value < 0.05){
+    
+    target_panels[[i_target]] <- target_panels[[i_target]] +
+      
+        geom_signif(comparisons      = comparison_labels[[i_target]]$groups,
+                    map_signif_level = TRUE,
+                    textsize         = 3,
+                    y_position       = comparison_positions[[i_target]],
+                    annotations      = comparison_labels[[i_target]]$label,
+                    parse            = T,
+                    tip_length       = 0.01 
               )
     
   }
-    
-
-result_icc_ptau217 <- textGrob(icc_report(icc_ptau217), 
-                               gp = gpar(col      = "black",
-                                         fontsize = 10))
-
-plot_ptau217 + result_icc_ptau217 + plot_layout(widths = c(2.5, 1))
-
-```
-
-
-
-### Neurofilament light chain (NfL)
-#### Repeated measures ANOVA with follow-up paired comparisons
-
-```{r}
-anova_nfl <- oneway_anova(data         = data_nfl, 
-                          x            = hours_before_freeze, 
-                          y            = replicate_conc, 
-                          paired       = T,
-                          subject.id   = identifier,
-                          effsize.type = "eta" 
-                          )
-
-paired_comp_nfl <- generate_pairwise_labels(dataset = data_nfl,
-                                            x       = hours_before_freeze,
-                                            y       = replicate_conc)
-
-```
-
-#### ICC
-```{r}
-icc_nfl <- icc(data_nfl |> 
-  pivot_wider(id_cols      = c(identifier), 
-              names_from   = hours_before_freeze, 
-              values_from  = replicate_conc, 
-              names_prefix = "time_") |> 
-  select(-c(identifier)), 
-  model = "twoway", 
-  type = "agreement")
-
-```
-
-
-```{r, fig.width=8}
-plot_nfl <- generate_spaguetti_plot(data_nfl, 
-                                    response  = replicate_conc, 
-                                    font_size = 10) +
   
-  ggtitle(label    = bquote(NfL),
-          subtitle = anova_nfl$expression[[1]]) 
   
-  if(anova_nfl$p.value < 0.05){
-    
-    plot_nfl <- plot_nfl +
-      
-        geom_signif(comparisons      = paired_comp_nfl$groups,
-                    map_signif_level = TRUE,
-                    y_position       = c(1, 1.2, 1.1),
-                    annotations      = paired_comp_nfl$label,
-                    parse            = TRUE,
-                    tip_length       = 0.01 
-              )
-    
   }
+```
 
-result_icc_nfl <- textGrob(icc_report(icc_nfl), 
-                            gp = gpar(col      = "black",
-                                      fontsize = 10))
+### Render panel with combined plots
+```{r, fig.width=6, fig.height=5.5}
+combined_panel  <- plot_grid(target_panels[[1]], target_panels[[2]], target_panels[[3]], 
+                             target_panels[[4]], target_panels[[5]], target_panels[[6]],
+                             labels = "AUTO",
+                             label_size = 11)
 
-plot_nfl + result_icc_nfl + plot_layout(widths = c(2.5, 1))
+final_plot <- gridExtra::grid.arrange(gridExtra::arrangeGrob(combined_panel, 
+                                                             left   = common_y_title, 
+                                                             bottom = common_x_title))
 
 ```
 
-
-
-
-### Glial fibrillary acidic protein (GFAP)
-#### Repeated measures ANOVA with follow-up paired comparisons
-
+### Export plot
 ```{r}
-anova_gfap <- oneway_anova(data         = data_gfap, 
-                           x            = hours_before_freeze, 
-                           y            = replicate_conc, 
-                           paired       = T,
-                           subject.id   = identifier,
-                           effsize.type = "eta" 
-                           )
-
-paired_comp_gfap <- generate_pairwise_labels(dataset = data_gfap,
-                                             x       = hours_before_freeze,
-                                             y       = replicate_conc)
+ggsave(final_plot, filename = file.path(dir_figures, "assay_panel.png"), dpi = 300)
 
 ```
-
-#### ICC
-```{r}
-icc_gfap <- icc(data_gfap |> 
-  pivot_wider(id_cols      = c(identifier), 
-              names_from   = hours_before_freeze, 
-              values_from  = replicate_conc, 
-              names_prefix = "time_") |> 
-  select(-c(identifier)), 
-  model = "twoway", 
-  type = "agreement")
-
-```
-
-
-```{r, fig.width=8}
-plot_gfap <- generate_spaguetti_plot(data_gfap, 
-                                     response  = replicate_conc, 
-                                     font_size = 10) +
-  
-  ggtitle(label    = bquote(GFAP),
-          subtitle = anova_gfap$expression[[1]]) 
-  
-  if(anova_gfap$p.value < 0.05){
-    
-    plot_gfap <- plot_gfap +
-      
-        geom_signif(comparisons      = paired_comp_gfap$groups,
-                    map_signif_level = TRUE,
-                    y_position       = c(1, 1.2, 1.1),
-                    annotations      = paired_comp_gfap$label,
-                    parse            = TRUE,
-                    tip_length       = 0.01 
-        )
-    } 
-
-result_icc_gfap <- textGrob(icc_report(icc_gfap), 
-                            gp = gpar(col      = "black",
-                                      fontsize = 10))
-
-plot_gfap + result_icc_gfap + plot_layout(widths = c(2.5, 1))
-
-```
-
-
-### Amyloid $\beta_{40}$ ($A\beta_{40}$)
-#### Repeated measures ANOVA with follow-up paired comparisons
-```{r}
-anova_ab40 <- oneway_anova(data         = data_ab40, 
-                           x            = hours_before_freeze, 
-                           y            = replicate_conc, 
-                           paired       = T,
-                           subject.id   = identifier,
-                           effsize.type = "eta" 
-                           )
-
-paired_comp_ab40 <- generate_pairwise_labels(dataset = data_ab40,
-                                             x       = hours_before_freeze,
-                                             y       = replicate_conc)
-
-```
-
-#### ICC
-```{r}
-icc_ab40 <- icc(data_ab40 |> 
-  pivot_wider(id_cols      = c(identifier), 
-              names_from   = hours_before_freeze, 
-              values_from  = replicate_conc, 
-              names_prefix = "time_") |> 
-  select(-c(identifier)), 
-  model = "twoway", 
-  type = "agreement")
-
-```
-
-
-```{r, fig.width=8}
-plot_ab40 <- generate_spaguetti_plot(data_ab40, 
-                                     response  = replicate_conc, 
-                                     font_size = 10) +
-  
-  ggtitle(label    = bquote(A*beta[40]),
-          subtitle = anova_ab40$expression[[1]]) 
-  
-  if(anova_ab40$p.value < 0.05){
-    
-    plot_ab40 <- plot_ab40 +
-      
-        geom_signif(comparisons      = paired_comp_ab40$groups,
-                    map_signif_level = TRUE,
-                    y_position       = c(102, 118, 110),
-                    annotations      = paired_comp_ab40$label,
-                    parse            = TRUE,
-                    tip_length       = 0.01 
-        )
-    } 
-
-result_icc_ab40 <- textGrob(icc_report(icc_ab40), 
-                            gp = gpar(col      = "black",
-                                      fontsize = 10))
-
-plot_ab40 + result_icc_ab40 + plot_layout(widths = c(2.5, 1))
-
-```
-
-### Amyloid $\beta_{42}$ ($A\beta_{42}$)
-#### Repeated measures ANOVA with follow-up paired comparisons
-
-```{r}
-anova_ab42 <- oneway_anova(data         = data_ab42, 
-                           x            = hours_before_freeze, 
-                           y            = replicate_conc, 
-                           paired       = T,
-                           subject.id   = identifier,
-                           effsize.type = "eta" 
-                           )
-
-paired_comp_ab42 <- generate_pairwise_labels(dataset = data_ab42,
-                                             x       = hours_before_freeze,
-                                             y       = replicate_conc)
-
-```
-
-#### ICC
-```{r}
-icc_ab42 <- icc(data_ab42 |> 
-  pivot_wider(id_cols      = c(identifier), 
-              names_from   = hours_before_freeze, 
-              values_from  = replicate_conc, 
-              names_prefix = "time_") |> 
-  select(-c(identifier)), 
-  model = "twoway", 
-  type = "agreement")
-
-```
-
-
-```{r, fig.width=8}
-plot_ab42 <- generate_spaguetti_plot(data_ab42, 
-                                     response  = replicate_conc, 
-                                     font_size = 10) +
-  
-  ggtitle(label    = bquote(A*beta[42]),
-          subtitle = anova_ab42$expression[[1]]) 
-
-  if(anova_ab42$p.value < 0.05){
-    
-    plot_ab42 <- plot_ab42 +
-      
-      geom_signif(comparisons      = paired_comp_ab42$groups,
-                  map_signif_level = TRUE,
-                  y_position       = c(8, 9, 8.5),
-                  annotations      = paired_comp_ab42$label,
-                  parse            = TRUE,
-                  tip_length       = 0.01 
-      ) 
-    }
-  
-  
-
-result_icc_ab42 <- textGrob(icc_report(icc_ab42), 
-                            gp = gpar(col      = "black",
-                                      fontsize = 10))
-
-plot_ab42 + result_icc_ab42 + plot_layout(widths = c(2.5, 1))
-
-```
-
-
-### $\text{Ratio } \frac{A\beta_{42}}{A\beta_{40}}$
-#### Repeated measures ANOVA with follow-up paired comparisons
-
-```{r}
-anova_ratio_ab42 <- oneway_anova(data         = data_ratio_ab42, 
-                                 x            = hours_before_freeze, 
-                                 y            = ab42_ratio, 
-                                 paired       = T,
-                                 subject.id   = identifier,
-                                 effsize.type = "eta" 
-                                 )
-
-paired_comp_ratio_ab42 <- generate_pairwise_labels(dataset = data_ratio_ab42,
-                                                   x = hours_before_freeze,
-                                                   y = ab42_ratio)
-
-```
-
-#### ICC
-```{r}
-icc_ratio_ab42 <- icc(data_ratio_ab42 |> 
-  pivot_wider(id_cols      = c(identifier), 
-              names_from   = hours_before_freeze, 
-              values_from  = ab42_ratio, 
-              names_prefix = "time_") |> 
-  select(-c(identifier)), 
-  model = "twoway", 
-  type = "agreement")
-
-```
-
-
-```{r, fig.width=8}
-plot_ab42_ratio <- generate_spaguetti_plot(data_ratio_ab42, 
-                                           response  = ab42_ratio, 
-                                           font_size = 10) +
-  
-  ggtitle(label    = bquote(Ratio ~ A*beta[42]/A*beta[40]),
-          subtitle = anova_ratio_ab42$expression[[1]]) 
-
-  if(anova_ratio_ab42$p.value < 0.05){
-      
-      plot_ab42_ratio <- plot_ab42_ratio +
-        
-        geom_signif(comparisons      = paired_comp_ratio_ab42$groups,
-                    map_signif_level = TRUE,
-                    y_position       = c(0.09, 0.10, 0.095),
-                    annotations      = paired_comp_ratio_ab42$label,
-                    parse            = TRUE,
-                    tip_length       = 0.01 
-        ) 
-      }
-
-
-result_icc_ab42_ratio <- textGrob(icc_report(icc_ratio_ab42), 
-                                  gp = gpar(col      = "black",
-                                            fontsize = 10))
-
-plot_ab42_ratio + result_icc_ab42_ratio + plot_layout(widths = c(2.5, 1))
-
-```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
